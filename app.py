@@ -7,33 +7,62 @@ from huggingface_hub import hf_hub_download
 from sentence_transformers import SentenceTransformer
 
 # ============================================================================
-# 1. KONFIGURASI HALAMAN (UI)
+# 1. KONFIGURASI HALAMAN MODERN
 # ============================================================================
 st.set_page_config(
-    page_title="Reddit Mod AI Detector",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="AI Comment Moderator",
+    page_icon="🤖",
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS untuk mempercantik tampilan
+# CSS Modern
 st.markdown("""
-    <style>
+<style>
     .main {
-        background-color: #f5f7f9;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+    }
+    .stApp {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    .comment-box {
+        background: white;
+        padding: 2rem;
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        margin-bottom: 2rem;
+    }
+    .result-box {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        margin: 1rem 0;
+    }
+    .safe {
+        border-left: 5px solid #10B981;
+    }
+    .violation {
+        border-left: 5px solid #EF4444;
     }
     .stButton>button {
         width: 100%;
-        background-color: #FF4B4B;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        border-radius: 10px;
+        border: none;
+        padding: 0.75rem;
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s ease;
     }
-    .stTextArea>div>div>textarea {
-        background-color: #ffffff;
-        border-radius: 10px;
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
     }
-    </style>
-    """, unsafe_allow_html=True)
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================================================
 # 2. LOAD MODEL & ALAT (CACHED)
@@ -41,38 +70,31 @@ st.markdown("""
 @st.cache_resource
 def load_resources():
     """
-    Fungsi ini mendownload model dari Hugging Face dan meload-nya.
-    Cache resource agar tidak download ulang setiap kali klik tombol.
+    Fungsi untuk memuat model dari Hugging Face
     """
-    # GANTI INI DENGAN REPO ANDA!
-    REPO_ID = "alhamdy/redditPSD" 
-    
-    status_text = st.empty()
-    status_text.info("🔄 Sedang memuat model AI dari Cloud...")
-
     try:
-        # 1. Download & Load Model Logistic Regression
+        # Ganti dengan repo ID Anda
+        REPO_ID = "alhamdy/redditPSD" 
+        
+        # Download & Load Model Logistic Regression
         model_path = hf_hub_download(repo_id=REPO_ID, filename="model_reddit.pkl")
         model = joblib.load(model_path)
 
-        # 2. Download & Load Scaler
+        # Download & Load Scaler
         scaler_path = hf_hub_download(repo_id=REPO_ID, filename="scaler_reddit.pkl")
         scaler = joblib.load(scaler_path)
 
-        # 3. Load SBERT (Otomatis download jika belum ada di cache sistem)
+        # Load SBERT
         sbert = SentenceTransformer('all-MiniLM-L6-v2')
         
-        status_text.empty() # Hapus pesan loading
         return model, scaler, sbert
     
     except Exception as e:
-        status_text.error(f"Gagal memuat model. Pastikan REPO_ID benar. Error: {e}")
+        st.error(f"Gagal memuat model: {e}")
         return None, None, None
 
-model, scaler, sbert = load_resources()
-
 # ============================================================================
-# 3. FUNGSI PREPROCESSING (SAMA PERSIS DENGAN TRAINING)
+# 3. FUNGSI PREPROCESSING
 # ============================================================================
 COMMERCIAL_KEYWORDS = ['buy', 'sell', 'discount', 'free', 'click', 'visit', 'check out', 'sale', 'offer', 'deal', 'promo', 'code', 'limited', 'subscribe', 'join', 'sign up', 'price', 'money', 'bonus']
 LEGAL_KEYWORDS = ['sue', 'lawsuit', 'lawyer', 'legal', 'court', 'judge', 'illegal', 'law', 'crime', 'police', 'contract', 'rights', 'should i', 'can i', 'is it legal']
@@ -87,7 +109,6 @@ def clean_text(text):
     return text
 
 def extract_features_single(text):
-    # Ekstrak fitur manual (sama seperti saat training)
     features = {}
     text_clean = clean_text(text)
     
@@ -106,97 +127,108 @@ def extract_features_single(text):
     return features, text_clean
 
 def prepare_input(text, sbert_model, scaler_obj):
-    # 1. Ekstrak Fitur Manual
     manual_features, text_clean = extract_features_single(text)
     df_manual = pd.DataFrame([manual_features])
     
-    # 2. Embedding SBERT
     embedding = sbert_model.encode([text_clean])
     df_emb = pd.DataFrame(embedding)
     df_emb.columns = [f'emb_{i}' for i in range(df_emb.shape[1])]
     
-    # 3. Gabungkan
     df_final = pd.concat([df_manual, df_emb], axis=1)
-    
-    # 4. Samakan kolom dengan Scaler (Agar urutan tidak tertukar)
-    # Mengisi 0 jika ada kolom hilang (safe guard)
     df_final = df_final.reindex(columns=scaler_obj.feature_names_in_, fill_value=0)
     
-    # 5. Scaling
     features_scaled = scaler_obj.transform(df_final)
     
     return features_scaled, manual_features
 
 # ============================================================================
-# 4. TAMPILAN UTAMA WEB
+# 4. TAMPILAN UTAMA
 # ============================================================================
 
-# --- Sidebar ---
-with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/en/thumb/5/58/Reddit_logo_new.svg/2560px-Reddit_logo_new.svg.png", width=100)
-    st.header("Tentang Aplikasi")
-    st.info("""
-    Aplikasi ini menggunakan **Machine Learning** (Logistic Regression + SBERT) untuk mendeteksi apakah komentar Reddit melanggar aturan atau tidak.
+# Header Modern
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.markdown("""
+    <div style='text-align: center; color: white; margin-bottom: 2rem;'>
+        <h1 style='font-size: 2.5rem; margin-bottom: 0.5rem;'>🤖 AI Comment Moderator</h1>
+        <p style='font-size: 1.1rem; opacity: 0.9;'>Deteksi konten tidak pantas dalam komentar secara real-time</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# Load resources
+model, scaler, sbert = load_resources()
+
+# Input Area
+with st.container():
+    st.markdown('<div class="comment-box">', unsafe_allow_html=True)
     
-    **Tugas PSD - Kelompok X**
-    1. Nama Mahasiswa 1
-    2. Nama Mahasiswa 2
-    """)
-    st.markdown("---")
-    st.write("Model hosted on Hugging Face 🤗")
-
-# --- Main Content ---
-st.title("🛡️ Reddit Comment Moderator AI")
-st.markdown("##### Deteksi Pelanggaran Aturan Komunitas secara Real-Time")
-
-# Area Input
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    user_input = st.text_area("Masukkan Komentar Reddit:", height=150, placeholder="Contoh: Click this link to buy cheap iphone!...")
+    user_input = st.text_area(
+        "**Masukkan komentar untuk dianalisis:**",
+        height=120,
+        placeholder="Contoh: Click this link to get FREE iPhone! Limited time offer...",
+        key="comment_input"
+    )
     
-    analyze_btn = st.button("🔍 Analisis Komentar", type="primary")
+    analyze_btn = st.button("🔍 Analisis Komentar", type="primary", use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# Area Hasil (Output)
+# Processing dan Results
 if analyze_btn and user_input:
     if model is None:
-        st.error("Model belum siap. Periksa koneksi atau Repo ID.")
+        st.error("Model belum siap. Silakan coba lagi dalam beberapa saat.")
     else:
-        with st.spinner("Sedang menganalisis teks..."):
-            # Proses Data
+        with st.spinner("🔄 Menganalisis komentar..."):
             X_input, debug_features = prepare_input(user_input, sbert, scaler)
-            
-            # Prediksi
-            prediction_prob = model.predict_proba(X_input)[0][1] # Ambil probabilitas kelas 1 (Violation)
+            prediction_prob = model.predict_proba(X_input)[0][1]
             prediction_class = 1 if prediction_prob > 0.5 else 0
 
-        # Tampilkan Hasil dengan layout kolom
-        st.markdown("### Hasil Analisis")
-        res_col1, res_col2 = st.columns(2)
+        # Tampilkan Hasil
+        result_class = "violation" if prediction_class == 1 else "safe"
+        result_icon = "🚨" if prediction_class == 1 else "✅"
+        result_text = "MELANGGAR ATURAN" if prediction_class == 1 else "AMAN"
+        result_color = "#EF4444" if prediction_class == 1 else "#10B981"
+        
+        st.markdown(f"""
+        <div class='result-box {result_class}'>
+            <div style='display: flex; align-items: center; justify-content: space-between;'>
+                <div>
+                    <h3 style='color: {result_color}; margin: 0;'>{result_icon} {result_text}</h3>
+                    <p style='margin: 0.5rem 0 0 0; color: #6B7280;'>
+                        Probabilitas: <strong>{prediction_prob:.2%}</strong>
+                    </p>
+                </div>
+                <div style='font-size: 2rem;'>
+                    {result_icon}
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        with res_col1:
-            if prediction_class == 1:
-                st.error("🚨 MELANGGAR ATURAN")
-                st.write("Komentar ini berpotensi melanggar aturan.")
-            else:
-                st.success("✅ AMAN / SAFE")
-                st.write("Komentar ini terlihat aman.")
+        # Progress Bar
+        progress_value = prediction_prob if prediction_class == 1 else (1 - prediction_prob)
+        st.progress(progress_value, text=f"Tingkat keyakinan: {progress_value:.1%}")
 
-        with res_col2:
-            st.metric(label="Probability Score", value=f"{prediction_prob:.2%}")
-            # Progress bar warna warni
-            if prediction_prob > 0.5:
-                st.progress(prediction_prob, text="Tingkat Risiko Tinggi")
-            else:
-                st.progress(prediction_prob, text="Tingkat Risiko Rendah")
-
-        # --- Detail Teknis (Explainability) ---
-        with st.expander("📊 Lihat Detail Fitur (Untuk Dosen/Analisis)"):
-            st.write("Fitur yang diekstrak dari teks:")
-            st.json(debug_features)
-            st.write("""
-            *Catatan: Jika 'Probability Score' > 50%, model mengklasifikasikan sebagai pelanggaran.*
+        # Penjelasan singkat
+        if prediction_class == 1:
+            st.info("""
+            **Komentar ini terdeteksi melanggar aturan karena:**
+            - Mengandung elemen komersial atau promosi
+            - Memiliki karakteristik spam atau konten mencurigakan
+            - Pola teks menyerupai konten terlarang
+            """)
+        else:
+            st.success("""
+            **Komentar ini terlihat aman dan sesuai dengan aturan komunitas.**
+            Tidak terdeteksi pola pelanggaran yang signifikan.
             """)
 
 elif analyze_btn and not user_input:
-    st.warning("⚠️ Mohon masukkan teks terlebih dahulu.")
+    st.warning("⚠️ Silakan masukkan komentar terlebih dahulu.")
+
+# Footer minimal
+st.markdown("""
+<div style='text-align: center; color: white; margin-top: 3rem; opacity: 0.7;'>
+    <p>Powered by Machine Learning • Real-time Content Moderation</p>
+</div>
+""", unsafe_allow_html=True)
