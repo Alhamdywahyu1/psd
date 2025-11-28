@@ -24,7 +24,7 @@ st.markdown("""
 
 # --- PENTING: GANTI INI DENGAN REPO ID ANDA ---
 # Contoh: "budi_santoso/qwen-reddit-moderator"
-REPO_ID = "USERNAME_HF_ANDA/NAMA_REPO_MODEL_ANDA" 
+REPO_ID = "alhamdy/redditPSD" 
 
 # Ambil token dari Streamlit Secrets (untuk keamanan)
 # Nanti kita set di dashboard Streamlit Cloud
