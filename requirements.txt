@@ -1,8 +1,2 @@
 streamlit
-pandas
-numpy
-scikit-learn
-sentence-transformers
 huggingface_hub
-joblib
-torch
